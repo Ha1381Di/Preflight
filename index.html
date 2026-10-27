@@ -1,0 +1,1597 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Preflight — Know the order before you go</title>
+<style>
+  :root{
+    --bg:#0a0e17; --panel:rgba(18,24,38,.72); --panel-border:rgba(120,180,255,.14);
+    --text:#e6edf7; --muted:#8b9bb4; --accent:#4fd1ff; --accent2:#9b6bff;
+    --good:#3ddc97; --warn:#ffb454; --bad:#ff5c7a; --line:rgba(120,180,255,.18);
+    --node-bg:rgba(20,28,45,.9); --shadow:0 10px 30px rgba(0,0,0,.35);
+  }
+  [data-theme="light"]{
+    --bg:#eef3fb; --panel:rgba(255,255,255,.75); --panel-border:rgba(20,60,120,.14);
+    --text:#0e1726; --muted:#5b6b85; --accent:#0aa2e0; --accent2:#6b4de6;
+    --good:#12a86b; --warn:#b07400; --bad:#d62f52; --line:rgba(20,60,120,.2);
+    --node-bg:rgba(255,255,255,.94); --shadow:0 10px 30px rgba(20,60,120,.12);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;overflow:hidden}
+  body{
+    font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    color:var(--text); background:var(--bg);
+    transition:background .5s, color .5s;
+  }
+  #bg{position:fixed;inset:0;width:100%;height:100%;z-index:0;display:block}
+  .vignette{position:fixed;inset:0;z-index:0;pointer-events:none;
+    background:radial-gradient(ellipse at center, transparent 40%, rgba(0,0,0,.35) 100%);}
+  [data-theme="light"] .vignette{background:radial-gradient(ellipse at center, transparent 50%, rgba(20,60,120,.08) 100%);}
+
+  .app{position:relative;z-index:1;height:100vh;display:flex;flex-direction:column;padding:14px;gap:14px}
+
+  /* ---- Header ---- */
+  header{
+    flex-shrink:0; display:flex; align-items:center; gap:16px;
+    padding:0 18px; height:64px;
+    background:var(--panel); border:1px solid var(--panel-border);
+    border-radius:16px; backdrop-filter:blur(14px); -webkit-backdrop-filter:blur(14px);
+    box-shadow:var(--shadow);
+  }
+  .logo{display:flex;align-items:center;gap:10px;font-weight:700;letter-spacing:.3px;flex-shrink:0}
+  .logo-mark{width:30px;height:30px;border-radius:9px;position:relative;
+    background:conic-gradient(from 0deg,var(--accent),var(--accent2),var(--accent));
+    animation:spin 8s linear infinite;filter:drop-shadow(0 0 10px rgba(79,209,255,.5));}
+  .logo-mark::after{content:"";position:absolute;inset:5px;border-radius:5px;background:var(--bg)}
+  .logo small{display:block;font-weight:400;font-size:11px;color:var(--muted);letter-spacing:.4px}
+  @keyframes spin{to{transform:rotate(360deg)}}
+
+  .main-nav{
+    display:flex;gap:4px;padding:4px;border-radius:12px;
+    border:1px solid var(--panel-border);background:rgba(255,255,255,.02);
+    margin:0 auto;
+  }
+  .main-nav button{
+    padding:8px 18px;border-radius:8px;background:transparent;border:none;
+    color:var(--muted);font-size:13px;font-weight:500;cursor:pointer;transition:all .2s;
+    font-family:inherit;
+  }
+  .main-nav button:hover{color:var(--text)}
+  .main-nav button.active{background:var(--accent);color:#04121c;font-weight:600}
+
+  .header-controls{display:flex;gap:8px;align-items:center;flex-shrink:0}
+  .pill{
+    display:inline-flex;align-items:center;gap:6px;padding:7px 12px;border-radius:999px;
+    border:1px solid var(--panel-border);background:rgba(255,255,255,.03);
+    color:var(--text);font-size:12px;cursor:pointer;transition:all .2s;user-select:none;
+    font-family:inherit;
+  }
+  .pill:hover{border-color:var(--accent);color:var(--accent)}
+  .pill.on{background:var(--accent);color:#04121c;border-color:var(--accent);font-weight:600}
+  .charter{font-size:11px;color:var(--muted);letter-spacing:.3px;
+    padding:4px 10px;border-radius:999px;border:1px dashed var(--panel-border);}
+
+  /* ---- Page container ---- */
+  .main-wrap{flex:1;min-height:0;position:relative}
+  .page{position:absolute;inset:0;display:none;overflow:hidden}
+  .page.active{display:block;animation:fadeIn .35s ease}
+  @keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+
+  footer{
+    flex-shrink:0;display:flex;align-items:center;justify-content:space-between;
+    padding:0 16px;font-size:11px;color:var(--muted);letter-spacing:.3px;
+    background:var(--panel);border:1px solid var(--panel-border);border-radius:12px;
+    backdrop-filter:blur(14px);height:34px;
+  }
+  footer b{color:var(--text);font-weight:600}
+
+  .panel{
+    background:var(--panel);border:1px solid var(--panel-border);border-radius:16px;
+    backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+    box-shadow:var(--shadow);overflow:hidden;display:flex;flex-direction:column;min-height:0;
+  }
+  .panel-head{padding:14px 16px 10px;border-bottom:1px solid var(--panel-border);
+    display:flex;align-items:center;justify-content:space-between}
+  .panel-head h2{margin:0;font-size:13px;letter-spacing:.6px;text-transform:uppercase;
+    color:var(--muted);font-weight:600}
+  .panel-body{padding:14px 16px;overflow:auto;min-height:0;flex:1}
+
+  /* ---- Home page ---- */
+  #page-home.active{display:block;overflow-y:auto;padding-right:4px}
+  .hero{
+    padding:60px 40px 50px;border-radius:20px;
+    background:var(--panel);border:1px solid var(--panel-border);
+    backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+    box-shadow:var(--shadow);margin-bottom:18px;
+    position:relative;overflow:hidden;text-align:center;
+  }
+  .hero::before{
+    content:"";position:absolute;inset:-50%;
+    background:conic-gradient(from 0deg at 50% 50%,
+      transparent 0deg, rgba(79,209,255,.08) 90deg, transparent 180deg,
+      rgba(155,107,255,.08) 270deg, transparent 360deg);
+    animation:spin 30s linear infinite;pointer-events:none;
+  }
+  .hero > *{position:relative}
+  .hero .charter-badge{
+    display:inline-block;padding:6px 14px;border-radius:999px;font-size:11.5px;
+    border:1px dashed var(--panel-border);color:var(--muted);
+    letter-spacing:.4px;margin-bottom:22px;
+  }
+  .hero h1{
+    font-size:clamp(38px,5vw,68px);line-height:1.05;margin:0 0 18px;font-weight:800;
+    letter-spacing:-1.5px;
+  }
+  .hero h1 span{
+    background:linear-gradient(90deg,var(--accent),var(--accent2));
+    -webkit-background-clip:text;background-clip:text;color:transparent;
+  }
+  .hero p.hero-sub{
+    font-size:16px;color:var(--muted);max-width:620px;margin:0 auto 32px;line-height:1.6;
+  }
+  .hero-ctas{display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin-bottom:38px}
+  .btn-primary.big, .btn-ghost.big{
+    padding:14px 28px;border-radius:12px;font-size:14px;font-weight:600;
+    cursor:pointer;font-family:inherit;transition:all .2s;border:1px solid transparent;
+  }
+  .btn-primary.big{background:var(--accent);color:#04121c;border-color:var(--accent)}
+  .btn-primary.big:hover{filter:brightness(1.1);transform:translateY(-1px);box-shadow:0 8px 24px rgba(79,209,255,.35)}
+  .btn-ghost.big{background:transparent;color:var(--text);border-color:var(--panel-border)}
+  .btn-ghost.big:hover{border-color:var(--accent);color:var(--accent)}
+
+  .hero-stats{display:flex;justify-content:center;gap:40px;flex-wrap:wrap}
+  .hero-stats > div{text-align:center}
+  .hero-stats b{display:block;font-size:26px;font-weight:800;letter-spacing:-.5px}
+  .hero-stats span{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px}
+
+  .featured{padding:22px 4px}
+  .featured h2{
+    font-size:13px;text-transform:uppercase;letter-spacing:.8px;
+    color:var(--muted);margin:0 0 16px;font-weight:600;
+  }
+  .plan-grid{
+    display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px;
+  }
+  .plan-card{
+    padding:18px;border-radius:14px;border:1px solid var(--panel-border);
+    background:var(--panel);backdrop-filter:blur(14px);
+    cursor:pointer;transition:all .2s;display:flex;flex-direction:column;gap:8px;
+    text-align:left;font-family:inherit;color:var(--text);
+    position:relative;overflow:hidden;
+  }
+  .plan-card::before{
+    content:"";position:absolute;inset:0;opacity:0;transition:opacity .3s;
+    background:linear-gradient(135deg,rgba(79,209,255,.08),rgba(155,107,255,.06));
+    pointer-events:none;
+  }
+  .plan-card:hover{border-color:var(--accent);transform:translateY(-2px)}
+  .plan-card:hover::before{opacity:1}
+  .plan-card > *{position:relative}
+  .plan-card .pc-icon{font-size:24px}
+  .plan-card .pc-title{font-size:14px;font-weight:600;line-height:1.3}
+  .plan-card .pc-meta{font-size:11px;color:var(--muted);letter-spacing:.3px;
+    display:flex;gap:8px;flex-wrap:wrap}
+  .plan-card .pc-cat{
+    display:inline-block;padding:2px 8px;border-radius:99px;font-size:10px;
+    border:1px solid var(--panel-border);color:var(--muted);text-transform:uppercase;
+    letter-spacing:.5px;width:fit-content;
+  }
+
+  /* ---- Planner page ---- */
+  #page-planner.active{
+    display:grid;grid-template-columns:290px 1fr 340px;gap:14px;
+  }
+  .planner-plan{padding-bottom:14px;border-bottom:1px solid var(--panel-border);margin-bottom:14px}
+  .planner-plan label{
+    font-size:11px;text-transform:uppercase;color:var(--muted);letter-spacing:.6px;
+    display:block;margin-bottom:8px;
+  }
+  .plan-select{
+    width:100%;padding:10px 12px;border-radius:10px;font-family:inherit;font-size:13px;
+    border:1px solid var(--panel-border);background:rgba(255,255,255,.03);color:var(--text);
+    cursor:pointer;outline:none;transition:border-color .2s;
+  }
+  .plan-select:hover, .plan-select:focus{border-color:var(--accent)}
+  .plan-select option{background:#0a0e17;color:#e6edf7}
+  [data-theme="light"] .plan-select option{background:#fff;color:#0e1726}
+  .browse-link{
+    display:inline-block;margin-top:8px;font-size:12px;color:var(--accent);
+    text-decoration:none;cursor:pointer;background:none;border:none;font-family:inherit;padding:0;
+  }
+  .browse-link:hover{text-decoration:underline}
+
+  .progress-wrap{margin:10px 0 4px}
+  .progress-label{display:flex;justify-content:space-between;font-size:11px;color:var(--muted);
+    margin-bottom:6px;letter-spacing:.3px}
+  .progress-bar{height:8px;border-radius:99px;overflow:hidden;background:rgba(255,255,255,.06);
+    border:1px solid var(--panel-border)}
+  .progress-fill{height:100%;width:0%;border-radius:99px;
+    background:linear-gradient(90deg,var(--accent),var(--accent2));
+    box-shadow:0 0 12px rgba(79,209,255,.6);
+    transition:width .5s cubic-bezier(.2,.8,.2,1)}
+
+  .stat-row{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px}
+  .stat{padding:10px;border-radius:10px;border:1px solid var(--panel-border);
+    background:rgba(255,255,255,.02)}
+  .stat .k{font-size:10px;text-transform:uppercase;color:var(--muted);letter-spacing:.6px}
+  .stat .v{font-size:18px;font-weight:700;margin-top:2px}
+  .stat .v small{font-size:11px;color:var(--muted);font-weight:400}
+
+  .control-block{margin-top:14px}
+  .control-block label{font-size:11px;text-transform:uppercase;color:var(--muted);
+    letter-spacing:.6px;display:block;margin-bottom:6px}
+  input[type=range]{width:100%;-webkit-appearance:none;appearance:none;height:6px;
+    border-radius:99px;background:linear-gradient(90deg,var(--accent),var(--accent2));outline:none}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;
+    width:18px;height:18px;border-radius:50%;background:#fff;
+    border:2px solid var(--accent);cursor:pointer;box-shadow:0 0 12px rgba(79,209,255,.6)}
+  input[type=range]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;
+    background:#fff;border:2px solid var(--accent);cursor:pointer}
+
+  .btn-row{display:flex;flex-wrap:wrap;gap:6px;margin-top:14px}
+  .btn{padding:7px 11px;border-radius:9px;font-size:12px;cursor:pointer;
+    border:1px solid var(--panel-border);background:rgba(255,255,255,.03);color:var(--text);
+    transition:all .2s;font-family:inherit}
+  .btn:hover{border-color:var(--accent);color:var(--accent)}
+  .btn.primary{background:var(--accent);color:#04121c;border-color:var(--accent);font-weight:600}
+  .btn.primary:hover{filter:brightness(1.1);color:#04121c}
+
+  .legend{margin-top:16px;font-size:11px;color:var(--muted);display:flex;flex-direction:column;gap:5px}
+  .legend div{display:flex;align-items:center;gap:8px}
+  .dot{width:9px;height:9px;border-radius:50%;display:inline-block}
+  .dot.done{background:var(--good);box-shadow:0 0 8px var(--good)}
+  .dot.unlocked{background:var(--accent);box-shadow:0 0 8px var(--accent)}
+  .dot.blocked{background:var(--bad);box-shadow:0 0 8px var(--bad)}
+  .dot.crit{background:var(--accent2);box-shadow:0 0 8px var(--accent2)}
+
+  #graph-wrap{overflow:auto;position:relative}
+  #graph-wrap svg{display:block;min-width:100%;min-height:100%}
+  .edge{stroke:var(--line);stroke-width:1.6;fill:none;transition:stroke .25s,stroke-width .25s}
+  .edge.critical{stroke:var(--accent2);stroke-width:2.2;stroke-dasharray:6 8;animation:dash 1.4s linear infinite}
+  .edge.active{stroke:var(--accent);stroke-width:2}
+  .edge.dim{opacity:.12}
+  @keyframes dash{to{stroke-dashoffset:-28}}
+
+  .node{cursor:pointer;transition:opacity .3s}
+  .node.dim{opacity:.15;pointer-events:none}
+  .card{width:100%;height:100%;padding:9px 12px;border-radius:12px;
+    background:var(--node-bg);border:1px solid var(--panel-border);
+    display:flex;flex-direction:column;justify-content:center;gap:3px;
+    font:13px/1.2 ui-sans-serif,system-ui,sans-serif;color:var(--text);
+    transition:border-color .25s, box-shadow .25s, background .25s;overflow:hidden}
+  .node:hover .card{border-color:var(--accent);
+    box-shadow:0 0 0 1px var(--accent) inset,0 0 20px rgba(79,209,255,.25)}
+  .node.selected .card{border-color:var(--accent2);
+    box-shadow:0 0 0 2px var(--accent2) inset,0 0 26px rgba(155,107,255,.35)}
+  .node.done .card{border-color:var(--good);
+    background:linear-gradient(135deg,rgba(61,220,151,.12),transparent)}
+  .node.blocked .card{border-color:rgba(255,92,122,.4)}
+  .node.critical .card{box-shadow:0 0 0 1px var(--accent2) inset}
+  .card-title{font-weight:600;overflow:hidden;display:-webkit-box;
+    -webkit-line-clamp:2;-webkit-box-orient:vertical;line-clamp:2}
+  .card-meta{font-size:10.5px;color:var(--muted);display:flex;align-items:center;
+    gap:6px;letter-spacing:.2px}
+  .card-meta .status-dot{width:7px;height:7px;border-radius:50%}
+  .node.done .status-dot{background:var(--good);box-shadow:0 0 6px var(--good)}
+  .node.unlocked .status-dot{background:var(--accent);box-shadow:0 0 6px var(--accent);
+    animation:blink 2s ease-in-out infinite}
+  .node.blocked .status-dot{background:var(--bad);box-shadow:0 0 6px var(--bad)}
+  @keyframes blink{0%,100%{opacity:1}50%{opacity:.35}}
+
+  .halo{fill:none;stroke:var(--accent);stroke-width:1.5;opacity:0}
+  .node.unlocked .halo{animation:pulse 2.6s ease-in-out infinite}
+  @keyframes pulse{0%,100%{opacity:0;r:2}50%{opacity:.35}}
+
+  .detail-empty{color:var(--muted);font-size:13px;text-align:center;padding:40px 10px;line-height:1.6}
+  .detail h3{margin:0 0 6px;font-size:17px;line-height:1.25}
+  .detail .tag{display:inline-block;padding:2px 8px;border-radius:99px;font-size:10.5px;
+    border:1px solid var(--panel-border);color:var(--muted);margin-right:4px;margin-bottom:4px;
+    letter-spacing:.3px}
+  .detail p{font-size:13px;line-height:1.55;color:var(--muted);margin:10px 0}
+  .kv{display:flex;justify-content:space-between;font-size:12.5px;padding:8px 0;
+    border-bottom:1px dashed var(--panel-border)}
+  .kv:last-child{border-bottom:none}
+  .kv .k{color:var(--muted)}
+  .kv .v{font-weight:600;text-align:right;max-width:60%}
+  .check-row{display:flex;align-items:center;gap:10px;margin:14px 0 10px;padding:12px;
+    border-radius:12px;border:1px solid var(--panel-border);
+    background:rgba(255,255,255,.02);cursor:pointer;user-select:none;transition:all .2s}
+  .check-row:hover{border-color:var(--good)}
+  .check-row.on{border-color:var(--good);background:rgba(61,220,151,.08)}
+  .checkbox{width:20px;height:20px;border-radius:6px;border:2px solid var(--muted);
+    display:grid;place-items:center;transition:all .2s;flex-shrink:0}
+  .check-row.on .checkbox{background:var(--good);border-color:var(--good)}
+  .check-row.on .checkbox::after{content:"✓";color:#04121c;font-weight:800;font-size:13px}
+  .check-row span{font-size:13px;font-weight:500}
+  .source-link{font-size:12px;color:var(--accent);text-decoration:none;word-break:break-all}
+  .source-link:hover{text-decoration:underline}
+  .dep-chips{display:flex;flex-wrap:wrap;gap:5px;margin-top:6px}
+  .chip{font-size:11px;padding:4px 8px;border-radius:7px;border:1px solid var(--panel-border);
+    background:rgba(255,255,255,.02);cursor:pointer;transition:all .2s}
+  .chip:hover{border-color:var(--accent);color:var(--accent)}
+
+  /* ---- Library page ---- */
+  #page-library.active{display:block;overflow-y:auto;padding-right:4px}
+  .lib-header{
+    padding:22px 24px;border-radius:16px;background:var(--panel);
+    border:1px solid var(--panel-border);backdrop-filter:blur(14px);
+    box-shadow:var(--shadow);margin-bottom:18px;
+    display:flex;flex-wrap:wrap;gap:14px;align-items:center;
+  }
+  .lib-header h1{margin:0;font-size:22px;font-weight:800;letter-spacing:-.5px;flex:1}
+  .lib-search{
+    padding:10px 14px;border-radius:10px;border:1px solid var(--panel-border);
+    background:rgba(255,255,255,.03);color:var(--text);font-family:inherit;
+    font-size:13px;outline:none;width:260px;transition:border-color .2s;
+  }
+  .lib-search:focus{border-color:var(--accent)}
+  .cat-filters{display:flex;flex-wrap:wrap;gap:6px;margin-top:14px;width:100%}
+  .cat-filter{
+    padding:5px 12px;border-radius:999px;font-size:11.5px;cursor:pointer;
+    border:1px solid var(--panel-border);background:transparent;color:var(--muted);
+    transition:all .2s;font-family:inherit;text-transform:uppercase;letter-spacing:.4px;
+  }
+  .cat-filter:hover{color:var(--text);border-color:var(--accent)}
+  .cat-filter.active{background:var(--accent);color:#04121c;border-color:var(--accent);font-weight:600}
+
+  body.no-motion *{animation:none !important;transition:none !important}
+
+  @media (max-width:1150px){
+    body{overflow:auto}
+    .app{height:auto;min-height:100vh}
+    header{flex-wrap:wrap;height:auto;padding:12px 16px;gap:10px}
+    .main-nav{margin:0;order:3;width:100%;justify-content:center}
+    .header-controls{margin-left:auto}
+    .charter{display:none}
+    #page-planner.active{grid-template-columns:1fr;grid-auto-rows:auto}
+    .main-wrap{position:static;flex:none}
+    .page{position:static}
+    .page.active{display:block}
+    #graph-wrap{min-height:60vh}
+    footer{flex-direction:column;gap:4px;padding:10px 14px;text-align:center;height:auto}
+    .hero{padding:40px 20px 32px}
+    .lib-search{width:100%}
+  }
+
+  @media print{
+    #bg,.vignette,header,footer,#sidebar,nav,.main-wrap > .page:not(.active){display:none !important}
+    body{background:#fff;color:#000;overflow:visible}
+    .app{display:block;height:auto;padding:0}
+    .panel{box-shadow:none;border:1px solid #ccc;background:#fff;break-inside:avoid;margin-bottom:10px}
+    #graph-wrap{overflow:visible}
+    .card{background:#fff;border:1px solid #999;color:#000}
+    .card-meta{color:#555}
+  }
+</style>
+</head>
+<body>
+<canvas id="bg"></canvas>
+<div class="vignette"></div>
+
+<div class="app">
+  <header>
+    <div class="logo">
+      <div class="logo-mark"></div>
+      <div>Preflight<small>Know the order</small></div>
+    </div>
+    <nav class="main-nav">
+      <button data-page="home" class="active">Home</button>
+      <button data-page="planner">Planner</button>
+      <button data-page="library">Library</button>
+    </nav>
+    <div class="header-controls">
+      <span class="charter" id="charterBadge">Free · No ads · No donations</span>
+      <button class="pill" id="musicBtn" title="Ambient music on/off">🎵 Music</button>
+      <button class="pill" id="fsBtn" title="Fullscreen">⛶</button>
+      <button class="pill" id="themeBtn" title="Toggle theme">🌙</button>
+      <button class="pill" id="motionBtn" title="Toggle motion">✨</button>
+    </div>
+  </header>
+
+  <div class="main-wrap">
+
+    <!-- ============ HOME PAGE ============ -->
+    <main id="page-home" class="page active">
+      <section class="hero">
+        <div class="charter-badge">Free forever · No ads · No donations · No tracking · Open source</div>
+        <h1>Know the order.<br><span>Before you go.</span></h1>
+        <p class="hero-sub">
+          Life events have hidden dependencies. Preflight shows you the true sequence —
+          every form, office, deadline, and blocker — so you never waste a trip or
+          restart an application.
+        </p>
+        <div class="hero-ctas">
+          <button class="btn-primary big" id="heroPlanner">Open planner →</button>
+          <button class="btn-ghost big" id="heroLibrary">Browse all plans</button>
+        </div>
+        <div class="hero-stats">
+          <div><b id="statPlans">25</b><span>Plans</span></div>
+          <div><b id="statSteps">100+</b><span>Steps mapped</span></div>
+          <div><b>∞</b><span>Free forever</span></div>
+          <div><b>0</b><span>Trackers</span></div>
+        </div>
+      </section>
+
+      <section class="featured">
+        <h2>Featured plans</h2>
+        <div class="plan-grid" id="featuredGrid"></div>
+      </section>
+
+      <section class="featured">
+        <h2>Popular categories</h2>
+        <div class="plan-grid" id="categoryGrid"></div>
+      </section>
+    </main>
+
+    <!-- ============ PLANNER PAGE ============ -->
+    <main id="page-planner" class="page">
+      <aside class="panel" id="sidebar">
+        <div class="panel-head"><h2>Plan</h2></div>
+        <div class="panel-body">
+          <div class="planner-plan">
+            <label for="planSelect">Selected plan</label>
+            <select id="planSelect" class="plan-select"></select>
+            <button class="browse-link" id="browseFromPlanner">Browse all plans →</button>
+          </div>
+
+          <div class="progress-wrap">
+            <div class="progress-label"><span>Progress</span><span id="progressPct">0%</span></div>
+            <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
+          </div>
+
+          <div class="stat-row">
+            <div class="stat"><div class="k">Remaining</div><div class="v" id="statRemaining">0 <small>tasks</small></div></div>
+            <div class="stat"><div class="k">Est. time</div><div class="v" id="statDays">0 <small>days</small></div></div>
+          </div>
+
+          <div class="control-block">
+            <label for="delay">Simulate delay: <span id="delayVal">0</span> days</label>
+            <input type="range" id="delay" min="0" max="90" value="0" />
+          </div>
+
+          <div class="btn-row">
+            <button class="btn primary" id="printBtn">🖨 Print</button>
+            <button class="btn" id="icsBtn">📅 .ics</button>
+            <button class="btn" id="shareBtn">🔗 Share</button>
+            <button class="btn" id="resetBtn">↺ Reset</button>
+          </div>
+
+          <div class="legend">
+            <div><span class="dot done"></span> Completed</div>
+            <div><span class="dot unlocked"></span> Ready to do</div>
+            <div><span class="dot blocked"></span> Blocked</div>
+            <div><span class="dot crit"></span> Critical path</div>
+          </div>
+        </div>
+      </aside>
+
+      <section class="panel" id="graph-wrap">
+        <svg id="graph" xmlns="http://www.w3.org/2000/svg"></svg>
+      </section>
+
+      <aside class="panel">
+        <div class="panel-head"><h2>Step detail</h2></div>
+        <div class="panel-body">
+          <div id="detail" class="detail">
+            <div class="detail-empty">
+              Select a step on the atlas<br>to see prerequisites, documents, deadlines and official sources.
+            </div>
+          </div>
+        </div>
+      </aside>
+    </main>
+
+    <!-- ============ LIBRARY PAGE ============ -->
+    <main id="page-library" class="page">
+      <div class="lib-header">
+        <h1>All plans <span style="color:var(--muted);font-size:14px;font-weight:400" id="libCount"></span></h1>
+        <input type="text" class="lib-search" id="libSearch" placeholder="Search plans..." />
+        <div class="cat-filters" id="catFilters"></div>
+      </div>
+      <div class="plan-grid" id="libraryGrid" style="padding-bottom:20px"></div>
+    </main>
+
+  </div>
+
+  <footer>
+    <div><b>Preflight</b> · informational only, not legal advice · always confirm with official sources</div>
+    <div id="clock"></div>
+  </footer>
+</div>
+
+<script>
+/* ============================================================
+   DATA
+   ============================================================ */
+const SRC = "https://example.gov/";
+function s(id, title, deps, days, docs, fee, tip){
+  return {
+    id, title, desc: title, deps, days,
+    docs: docs || [],
+    fee: fee || "$0",
+    source: SRC + id,
+    verified: "2026-01-15",
+    tip: tip || ""
+  };
+}
+
+const DATA = {
+  moving: { label:"Moving Apartments", icon:"🏠", cat:"Home", steps:[
+    s("notice","Notify landlord",[],30,["Lease","Notice letter"],"$0","Check notice period inside your lease."),
+    s("docs","Gather documents",[],3,["Photo ID","Pay stubs","Lease"],"$0","Scan to PDF before you start."),
+    s("gov","Update government address",["docs"],10,["ID","Proof of address"],"$0","Proof must be dated within 90 days."),
+    s("bank","Update bank address",["gov"],1,["New ID","Proof of address"],"$0","Some banks require an in-branch visit."),
+    s("insurance","Update insurance",["gov"],2,["Policy number","Proof"],"$0","Premiums often change after a move."),
+    s("utilities","Transfer utilities",["docs"],5,["Meter reading","Lease"],"$25","Take dated photos of meters."),
+    s("mail","Set up mail forwarding",["docs"],1,["Old address","New address"],"$1","Do this the day before moving."),
+    s("school","Update school records",["gov"],3,["Birth certificate","Vaccination record"],"$0","Some districts need an in-person appointment."),
+    s("vote","Update voter registration",["gov"],1,["ID"],"$0","Deadlines vary — update early.")
+  ]},
+
+  newborn: { label:"Having a Baby", icon:"👶", cat:"Family", steps:[
+    s("register","Register the birth",[],21,["Hospital record","Parent IDs"],"$0","Hospitals often file for you — ask."),
+    s("cert","Obtain birth certificate",["register"],14,["Registration receipt"],"$15","Order 2–3 certified copies."),
+    s("id","Register national ID",["cert"],10,["Birth certificate","Parent IDs"],"$0","ID is required for insurance."),
+    s("insurance","Add to health insurance",["cert"],15,["Birth certificate","Policy"],"$0","30-day enrollment window is typical."),
+    s("pediatrician","Register pediatrician",["id"],2,["Child ID"],"$0","Popular practices have waitlists."),
+    s("leave","File parental leave",["register"],5,["Birth certificate","Employer forms"],"$0","Check both policy and statute."),
+    s("childcare","Join childcare waitlist",["id"],1,["Child ID","Vaccination record"],"$50","Waitlists can be 12–18 months."),
+    s("benefits","Apply for child benefits",["cert","id"],20,["Birth certificate","Child ID","Bank details"],"$0","Retroactive claims usually capped at 6 months.")
+  ]},
+
+  namechange: { label:"Changing Your Name", icon:"📝", cat:"Identity", steps:[
+    s("petition","File court petition",[],14,["ID","Petition form"],"$150","Some jurisdictions require publication."),
+    s("hearing","Attend court hearing",["petition"],30,["Petition receipt","ID"],"$0","Bring original documents."),
+    s("order","Receive court order",["hearing"],10,["Court order"],"$20","Order 3–5 certified copies."),
+    s("id","Update ID & passport",["order"],15,["Court order","Old ID","Photo"],"$90","Book an appointment."),
+    s("ssn","Update social security",["order"],10,["Court order","ID"],"$0","Do this before updating banks."),
+    s("bank","Update banks & cards",["id","ssn"],3,["New ID","Court order"],"$0","Order new cards after all accounts updated."),
+    s("insurance","Update insurance",["id"],2,["New ID"],"$0","Policy names must match your legal ID."),
+    s("notify","Notify employers & schools",["order"],5,["Court order","New ID"],"$0","Ask HR to update payroll first.")
+  ]},
+
+  marriage: { label:"Getting Married", icon:"💍", cat:"Family", steps:[
+    s("license","Apply for marriage license",[],14,["IDs","Birth certificates"],"$60","Some states require a waiting period."),
+    s("ceremony","Hold ceremony",["license"],1,["License","Officiant"],"$0","Officiant must be registered."),
+    s("register","Register the marriage",["ceremony"],7,["Signed license"],"$0","Officiant usually files this."),
+    s("cert","Obtain marriage certificate",["register"],14,["Registration receipt"],"$20","Order multiple certified copies."),
+    s("name","Optional name change",["cert"],30,["Marriage certificate","ID"],"$90","Different process from a court name change."),
+    s("insurance","Update insurance",["cert"],3,["Marriage certificate"],"$0","Add spouse to health, life, auto.")
+  ]},
+
+  divorce: { label:"Getting Divorced", icon:"💔", cat:"Family", steps:[
+    s("file","File for divorce",[],30,["Marriage certificate","Financial docs"],"$200","Jurisdiction rules vary widely."),
+    s("serve","Serve spouse",["file"],14,["Filing receipt"],"$50","Service method must meet legal standards."),
+    s("wait","Waiting period",["serve"],90,["Court schedule"],"$0","Some jurisdictions require 6+ months."),
+    s("settle","Settlement or trial",["wait"],60,["Financial disclosures","Court dates"],"$0","Most cases settle without trial."),
+    s("finalize","Finalize the divorce",["settle"],30,["Court order"],"$0","Obtain certified copies of the decree."),
+    s("update","Update records",["finalize"],14,["Decree","ID"],"$0","Banks, insurance, will, beneficiaries.")
+  ]},
+
+  death: { label:"Handling a Death", icon:"🕊️", cat:"Life", steps:[
+    s("cert","Obtain death certificate",[],14,["Medical record","ID"],"$20","Order 5–10 certified copies."),
+    s("funeral","Arrange funeral",["cert"],5,["Death certificate"],"$0","Compare providers — costs vary widely."),
+    s("notify","Notify government",["cert"],10,["Death certificate"],"$0","One agency often notifies others."),
+    s("probate","Open probate",["cert"],30,["Will","Death certificate"],"$300","Required if estate is above a threshold."),
+    s("accounts","Close accounts",["probate"],60,["Probate order","Death certificate"],"$0","Cancel cards, subscriptions, utilities."),
+    s("benefits","Claim survivor benefits",["cert"],30,["Death certificate","ID"],"$0","Retroactive claims may be time-limited.")
+  ]},
+
+  retirement: { label:"Planning Retirement", icon:"🌅", cat:"Life", steps:[
+    s("estimate","Estimate retirement income",[],1,["Pension statements","Savings"],"$0","Include social security, pension, savings."),
+    s("pension","Claim pension",["estimate"],30,["ID","Pension number"],"$0","Apply several months before retirement."),
+    s("healthcare","Register for healthcare",["estimate"],30,["ID","Income proof"],"$0","Some plans require enrollment windows."),
+    s("budget","Plan the budget",["estimate"],5,["Retirement income","Expenses"],"$0","Track the first 6 months carefully."),
+    s("tax","Plan tax withdrawals",["budget"],10,["Account statements"],"$0","Withdrawal order affects tax."),
+    s("insurance","Update insurance",["healthcare"],3,["New plan details"],"$0","Life and long-term care need review.")
+  ]},
+
+  newjob: { label:"Starting a New Job", icon:"💼", cat:"Career", steps:[
+    s("offer","Review job offer",[],3,["Offer letter"],"$0","Compare total compensation."),
+    s("contract","Sign contract",["offer"],1,["Contract"],"$0","Read non-compete and IP clauses."),
+    s("tax","Submit tax forms",["contract"],2,["Contract","ID"],"$0","Wrong withholding is a common issue."),
+    s("bank","Set up payroll deposit",["contract"],3,["Bank details"],"$0","Verify first paycheck carefully."),
+    s("orientation","Attend orientation",["contract"],5,["Contract"],"$0","Ask about benefits enrollment window."),
+    s("benefits","Enroll in benefits",["orientation"],14,["Contract","ID","Dependents info"],"$0","Enrollment window often 30 days.")
+  ]},
+
+  immigration: { label:"Immigrating", icon:"🛂", cat:"Travel", steps:[
+    s("visa","Apply for visa",[],30,["Passport","Photos","Forms"],"$500","Processing can take many months."),
+    s("medical","Complete medical exam",["visa"],10,["Visa receipt"],"$200","Use an approved clinic only."),
+    s("biometrics","Submit biometrics",["visa"],14,["Appointment letter","Passport"],"$85","Book early — slots are limited."),
+    s("interview","Attend interview",["medical","biometrics"],30,["All documents"],"$0","Bring originals, not copies."),
+    s("residence","Obtain residence permit",["interview"],20,["Approval letter","Passport"],"$0","Check validity and renewal timing."),
+    s("work","Get work permit",["residence"],30,["Job offer","Residence permit"],"$0","Some permits tied to specific employer.")
+  ]},
+
+  business: { label:"Starting a Business", icon:"🏢", cat:"Career", steps:[
+    s("name","Choose business name",[],1,["Name search"],"$0","Check trademark availability."),
+    s("register","Register the business",["name"],14,["ID","Address proof","Forms"],"$150","Choose the right legal structure."),
+    s("tax","Apply for tax ID",["register"],7,["Registration certificate"],"$0","Required for banking and invoices."),
+    s("bank","Open business bank account",["register","tax"],5,["Certificate","Tax ID","ID"],"$0","Keep personal and business separate."),
+    s("license","Obtain business license",["register"],30,["Certificate","Address","Insurance"],"$200","Industry-specific licenses may apply."),
+    s("insurance","Get business insurance",["license"],7,["License","Contracts"],"$0","Required for many leases and clients.")
+  ]},
+
+  license: { label:"Getting a Driver's License", icon:"🚗", cat:"Travel", steps:[
+    s("theory","Pass theory test",[],7,["ID","Study materials"],"$30","Book the test — slots fill up."),
+    s("lessons","Take driving lessons",["theory"],30,["Theory pass","Learner permit"],"$400","Practicing with a licensed driver helps."),
+    s("exam","Pass practical exam",["lessons"],14,["Learner permit","Vehicle"],"$60","Bring a registered, insured vehicle."),
+    s("license","Receive license",["exam"],10,["Exam pass","ID"],"$60","Check validity and renewal."),
+    s("insurance","Get auto insurance",["license"],1,["License","Vehicle info"],"$0","Required before you drive.")
+  ]},
+
+  pet: { label:"Adopting a Pet", icon:"🐾", cat:"Home", steps:[
+    s("adopt","Adopt the animal",[],3,["ID","Adoption fee"],"$150","Meet the animal before committing."),
+    s("register","Register the pet",["adopt"],7,["Adoption papers","Address"],"$20","Some cities require registration."),
+    s("vet","First vet visit",["adopt"],3,["Adoption papers"],"$100","Vaccines and microchip on first visit."),
+    s("insurance","Get pet insurance",["vet"],1,["Vet records"],"$30","Pre-existing conditions usually excluded."),
+    s("microchip","Register microchip",["vet"],1,["Microchip number"],"$0","Update contact info if you move.")
+  ]},
+
+  travel: { label:"International Travel", icon:"✈️", cat:"Travel", steps:[
+    s("passport","Check passport validity",[],1,["Passport"],"$0","Most countries require 6 months validity."),
+    s("visa","Apply for visa",["passport"],21,["Passport","Photos","Forms"],"$100","Some visas require an interview."),
+    s("vaccines","Get required vaccines",["passport"],14,["Vaccination record"],"$0","Yellow fever may be required."),
+    s("insurance","Buy travel insurance",["passport"],1,["Passport","Itinerary"],"$50","Check medical and evacuation coverage."),
+    s("bank","Notify bank of travel",["passport"],1,["Card numbers"],"$0","Prevents fraud blocks on cards.")
+  ]},
+
+  university: { label:"Starting University", icon:"🎓", cat:"Education", steps:[
+    s("admit","Accept admission",[],3,["Offer letter"],"$0","Deadlines are strict."),
+    s("enroll","Complete enrollment",["admit"],14,["Offer letter","ID"],"$0","Course selection often opens early."),
+    s("visa","Apply for student visa",["admit"],30,["Admission letter","Financial proof"],"$300","Required for international students."),
+    s("housing","Arrange housing",["admit"],30,["Admission letter"],"$0","Apply early — dorms fill up."),
+    s("tuition","Arrange tuition payment",["enroll"],14,["Admission letter","Bank info"],"$0","Payment plans may be available.")
+  ]},
+
+  taxes: { label:"Filing Taxes (First Time)", icon:"💰", cat:"Money", steps:[
+    s("collect","Collect income documents",[],14,["W-2s","1099s","Bank statements"],"$0","Missing a form is the most common error."),
+    s("deductions","Gather deductions",["collect"],7,["Receipts","Charity records"],"$0","Standard deduction may be better."),
+    s("file","File the return",["collect","deductions"],7,["Income documents"],"$0","E-filing is faster and safer."),
+    s("pay","Pay or receive refund",["file"],21,["Return copy","Bank info"],"$0","Late payment accrues interest."),
+    s("keep","Keep records",["file"],1,["Return copy"],"$0","Keep at least 3 years.")
+  ]},
+
+  healthcare: { label:"Registering for Healthcare", icon:"🏥", cat:"Health", steps:[
+    s("register","Register with health system",[],14,["ID","Address proof"],"$0","Some systems require local residence."),
+    s("choose","Choose a plan",["register"],7,["Registration","Income info"],"$0","Compare coverage and networks."),
+    s("id","Receive health card",["choose"],14,["Registration receipt"],"$0","Keep a photo on your phone."),
+    s("pharmacy","Register with pharmacy",["id"],1,["Health card"],"$0","Needed for prescriptions.")
+  ]},
+
+  banking: { label:"Opening a Bank Account", icon:"🏦", cat:"Money", steps:[
+    s("choose","Choose a bank",[],3,["Research"],"$0","Compare fees, rates, ATM network."),
+    s("id","Prepare ID documents",["choose"],1,["Passport","Proof of address","Tax ID"],"$0","Original documents usually required."),
+    s("apply","Submit application",["id"],1,["Documents"],"$0","In-person may be required."),
+    s("deposit","Make initial deposit",["apply"],1,["Cash or transfer"],"$0","Some accounts require minimum deposit."),
+    s("card","Receive debit card",["apply"],10,["Account info"],"$0","Activate by phone or app."),
+    s("online","Set up online banking",["card"],1,["Account info"],"$0","Enable two-factor authentication.")
+  ]},
+
+  carinsurance: { label:"Getting Auto Insurance", icon:"🛡️", cat:"Money", steps:[
+    s("quote","Get quotes",[],3,["Vehicle info","License"],"$0","Compare at least 3 insurers."),
+    s("select","Select a policy",["quote"],1,["Quotes"],"$0","Check coverage limits carefully."),
+    s("buy","Purchase the policy",["select"],1,["License","Payment method"],"$0","Coverage starts immediately."),
+    s("register","Register vehicle",["buy"],7,["Insurance proof","Vehicle title"],"$0","Required before driving.")
+  ]},
+
+  voting: { label:"Registering to Vote", icon:"🗳️", cat:"Civic", steps:[
+    s("register","Register as a voter",[],14,["ID","Address proof"],"$0","Deadlines vary before elections."),
+    s("id","Check voter ID requirements",["register"],1,["ID"],"$0","Some places accept multiple ID types."),
+    s("polling","Find your polling place",["register"],1,["Registration"],"$0","Check in advance — it may change."),
+    s("vote","Cast your vote",["polling"],1,["ID","Voter card"],"$0","Early voting may be available.")
+  ]},
+
+  adoption: { label:"Adopting a Child", icon:"👨‍👩‍👧", cat:"Family", steps:[
+    s("homestudy","Complete home study",[],60,["Financial docs","References"],"$2000","Required in most jurisdictions."),
+    s("apply","Submit adoption application",["homestudy"],30,["Home study","ID"],"$0","Preference matching takes time."),
+    s("court","Finalize in court",["apply"],90,["Court date","Documents"],"$0","Post-placement visits may be required."),
+    s("cert","Update birth certificate",["court"],30,["Court order"],"$0","Some jurisdictions issue new certificates."),
+    s("benefits","Add to insurance & benefits",["cert"],14,["New birth certificate"],"$0","Check any adoption-specific benefits.")
+  ]},
+
+  freelance: { label:"Going Freelance", icon:"💡", cat:"Career", steps:[
+    s("register","Register as self-employed",[],14,["ID","Business info"],"$0","Rules depend on country."),
+    s("tax","Set up tax registration",["register"],7,["Registration"],"$0","Quarterly tax is common."),
+    s("contracts","Prepare contracts",["register"],3,["Templates"],"$0","Get contracts reviewed once."),
+    s("insurance","Get liability insurance",["register"],3,["Contract info"],"$0","Required for many clients."),
+    s("invoicing","Set up invoicing",["tax"],1,["Bank info"],"$0","Track income and expenses from day 1.")
+  ]},
+
+  movingabroad: { label:"Moving Abroad", icon:"🌍", cat:"Travel", steps:[
+    s("passport","Check passport",[],1,["Passport"],"$0","6+ months validity typically required."),
+    s("visa","Get visa or residence permit",["passport"],45,["Passport","Documents"],"$300","Apply far in advance."),
+    s("health","Arrange health coverage",["visa"],14,["Visa","Insurance quotes"],"$0","Required for many residence permits."),
+    s("bank","Open local bank account",["visa"],14,["Passport","Address proof"],"$0","May require local ID first."),
+    s("tax","Notify tax authority",["visa"],30,["Tax number","Documents"],"$0","Double taxation treaties matter.")
+  ]},
+
+  funeral: { label:"Planning a Funeral", icon:"⚱️", cat:"Life", steps:[
+    s("permit","Obtain burial/cremation permit",[],3,["Death certificate"],"$0","Funeral home typically handles this."),
+    s("choose","Choose a funeral home",["permit"],1,["Quotes"],"$0","Compare prices — costs vary widely."),
+    s("ceremony","Arrange the ceremony",["choose"],3,["Death certificate"],"$0","Consider family wishes and location."),
+    s("notify","Publish an obituary",["permit"],1,["Photo","Text"],"$0","Optional but helpful for community."),
+    s("accounts","Notify accounts",["permit"],14,["Death certificate"],"$0","Close utilities, cancel subscriptions.")
+  ]},
+
+  digital: { label:"Digital Legacy", icon:"🔐", cat:"Digital", steps:[
+    s("inventory","Inventory accounts",[],7,["Password manager"],"$0","Use a password manager, not paper."),
+    s("will","Write a digital will",["inventory"],7,["Account list"],"$0","Some platforms have legacy tools."),
+    s("executor","Choose a digital executor",["inventory"],1,["Trusted contact"],"$0","They must know where keys live."),
+    s("backup","Back up important files",["inventory"],3,["Storage plan"],"$0","Two backups, two locations."),
+    s("sharing","Document account recovery",["will","executor"],3,["Recovery codes"],"$0","Store codes securely.")
+  ]},
+
+  phone: { label:"Getting a Phone Plan", icon:"📱", cat:"Digital", steps:[
+    s("choose","Compare carriers",[],2,["Coverage maps","Prices"],"$0","Coverage varies by neighborhood."),
+    s("id","Prepare ID",["choose"],1,["Passport or national ID"],"$0","Some countries require local address."),
+    s("sign","Sign up for a plan",["id"],1,["ID"],"$0","Prepaid avoids credit checks."),
+    s("activate","Activate SIM or eSIM",["sign"],1,["SIM card"],"$0","eSIM needs compatible device."),
+    s("account","Set up the account",["activate"],1,["SIM number"],"$0","Enable 2FA and autopay.")
+  ]}
+};
+
+/* ============================================================
+   STATE
+   ============================================================ */
+const STORAGE_KEY = "preflight.v2";
+const state = {
+  page: "home",
+  event: "moving",
+  checked: {},
+  selected: null,
+  delay: 0,
+  focus: false,
+  motion: !matchMedia("(prefers-reduced-motion: reduce)").matches,
+  theme: "dark",
+  libraryFilter: "All",
+  librarySearch: ""
+};
+
+function loadState(){
+  try{
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if(!raw) return;
+    const j = JSON.parse(raw);
+    if(j.theme) state.theme = j.theme;
+    if(j.motion !== undefined) state.motion = j.motion;
+    if(j.event && DATA[j.event]) state.event = j.event;
+    if(j.checked){
+      Object.keys(j.checked).forEach(k=>{ state.checked[k] = new Set(j.checked[k]); });
+    }
+  }catch(e){}
+}
+function saveState(){
+  const out = { theme:state.theme, motion:state.motion, event:state.event, checked:{} };
+  Object.keys(state.checked).forEach(k=>{ out.checked[k] = [...state.checked[k]]; });
+  try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(out)); }catch(e){}
+}
+function getChecked(){
+  if(!state.checked[state.event]) state.checked[state.event] = new Set();
+  return state.checked[state.event];
+}
+
+/* ============================================================
+   HELPERS
+   ============================================================ */
+const SVG_NS = "http://www.w3.org/2000/svg";
+const $ = sel => document.querySelector(sel);
+const esc = s => String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const NODE_W = 190, NODE_H = 74, GAP_X = 70, GAP_Y = 26, PAD = 40;
+
+function computeLayers(steps){
+  const byId = Object.fromEntries(steps.map(s=>[s.id,s]));
+  const lv = {};
+  const visit = id => {
+    if(lv[id] !== undefined) return lv[id];
+    const st = byId[id];
+    lv[id] = st.deps.length ? 1 + Math.max(...st.deps.map(visit)) : 0;
+    return lv[id];
+  };
+  steps.forEach(st=>visit(st.id));
+  return lv;
+}
+function computeCritical(steps){
+  const byId = Object.fromEntries(steps.map(s=>[s.id,s]));
+  const memo = {};
+  const longest = id => {
+    if(memo[id]) return memo[id];
+    const st = byId[id];
+    if(!st.deps.length){ memo[id] = [id]; return memo[id]; }
+    let best = [];
+    for(const d of st.deps){
+      const p = longest(d);
+      if(p.length > best.length) best = p;
+    }
+    memo[id] = [...best, id];
+    return memo[id];
+  };
+  let best = [];
+  for(const st of steps){
+    const p = longest(st.id);
+    if(p.length > best.length) best = p;
+  }
+  return new Set(best);
+}
+function getStatus(step, checked){
+  if(checked.has(step.id)) return "done";
+  if(step.deps.every(d=>checked.has(d))) return "unlocked";
+  return "blocked";
+}
+function computeSchedule(steps, checked, delayDays){
+  const byId = Object.fromEntries(steps.map(s=>[s.id,s]));
+  const cache = {};
+  const sched = id => {
+    if(cache[id]) return cache[id];
+    const st = byId[id];
+    if(checked.has(id)){ cache[id] = { start:0, end:0, done:true }; return cache[id]; }
+    const depEnds = st.deps.map(d=>sched(d).end);
+    const start = depEnds.length ? Math.max(...depEnds) : 0;
+    cache[id] = { start, end: start + st.days + delayDays, done:false };
+    return cache[id];
+  };
+  steps.forEach(st=>sched(st.id));
+  return cache;
+}
+function ymd(d){
+  return d.getFullYear().toString().padStart(4,"0")
+    + String(d.getMonth()+1).padStart(2,"0")
+    + String(d.getDate()).padStart(2,"0");
+}
+
+/* ============================================================
+   NAVIGATION
+   ============================================================ */
+function go(page){
+  state.page = page;
+  document.querySelectorAll(".page").forEach(p=>{
+    p.classList.toggle("active", p.id === "page-" + page);
+  });
+  document.querySelectorAll(".main-nav button").forEach(b=>{
+    b.classList.toggle("active", b.dataset.page === page);
+  });
+  location.hash = page;
+  if(page === "planner") setTimeout(()=>{ renderGraph(); renderDetail(); renderProgress(); }, 40);
+}
+document.querySelectorAll(".main-nav button").forEach(b=>{
+  b.addEventListener("click", ()=>go(b.dataset.page));
+});
+$("#heroPlanner").addEventListener("click", ()=>go("planner"));
+$("#heroLibrary").addEventListener("click", ()=>go("library"));
+$("#browseFromPlanner").addEventListener("click", ()=>go("library"));
+
+/* ============================================================
+   LIBRARY
+   ============================================================ */
+function renderLibrary(){
+  const box = $("#libraryGrid");
+  const q = state.librarySearch.toLowerCase().trim();
+  const cat = state.libraryFilter;
+  const entries = Object.entries(DATA).filter(([k,v])=>{
+    if(cat !== "All" && v.cat !== cat) return false;
+    if(q && !(v.label.toLowerCase().includes(q) || v.cat.toLowerCase().includes(q))) return false;
+    return true;
+  });
+  $("#libCount").textContent = `(${entries.length})`;
+  if(!entries.length){
+    box.innerHTML = `<div style="grid-column:1/-1;text-align:center;color:var(--muted);padding:40px;font-size:13px">No plans match your search.</div>`;
+    return;
+  }
+  box.innerHTML = "";
+  entries.forEach(([key, ev])=>{
+    const card = document.createElement("button");
+    card.className = "plan-card";
+    card.innerHTML = `
+      <div class="pc-icon">${ev.icon}</div>
+      <div class="pc-title">${esc(ev.label)}</div>
+      <div class="pc-meta">
+        <span>${ev.steps.length} steps</span>
+        <span>·</span>
+        <span>${ev.steps.reduce((a,s)=>a+s.days,0)}d total</span>
+      </div>
+      <div class="pc-cat">${esc(ev.cat)}</div>
+    `;
+    card.addEventListener("click", ()=>openPlan(key));
+    box.appendChild(card);
+  });
+}
+function renderLibraryFilters(){
+  const cats = ["All", ...new Set(Object.values(DATA).map(v=>v.cat))].sort((a,b)=>a==="All"?-1:a.localeCompare(b));
+  const box = $("#catFilters");
+  box.innerHTML = "";
+  cats.forEach(c=>{
+    const b = document.createElement("button");
+    b.className = "cat-filter" + (state.libraryFilter === c ? " active" : "");
+    b.textContent = c;
+    b.addEventListener("click", ()=>{
+      state.libraryFilter = c;
+      renderLibraryFilters();
+      renderLibrary();
+    });
+    box.appendChild(b);
+  });
+}
+$("#libSearch").addEventListener("input", e=>{
+  state.librarySearch = e.target.value;
+  renderLibrary();
+});
+
+function openPlan(key){
+  state.event = key;
+  state.selected = null;
+  saveState();
+  go("planner");
+  build();
+}
+
+/* ============================================================
+   HOME FEATURED
+   ============================================================ */
+function renderFeatured(){
+  const featured = ["moving", "newborn", "namechange", "marriage", "immigration", "newjob"];
+  const grid = $("#featuredGrid");
+  grid.innerHTML = "";
+  featured.forEach(k=>{
+    const ev = DATA[k];
+    if(!ev) return;
+    const card = document.createElement("button");
+    card.className = "plan-card";
+    card.innerHTML = `
+      <div class="pc-icon">${ev.icon}</div>
+      <div class="pc-title">${esc(ev.label)}</div>
+      <div class="pc-meta"><span>${ev.steps.length} steps</span><span>·</span><span>${ev.steps.reduce((a,s)=>a+s.days,0)}d</span></div>
+      <div class="pc-cat">${esc(ev.cat)}</div>
+    `;
+    card.addEventListener("click", ()=>openPlan(k));
+    grid.appendChild(card);
+  });
+
+  const cats = [...new Set(Object.values(DATA).map(v=>v.cat))].sort();
+  const catGrid = $("#categoryGrid");
+  catGrid.innerHTML = "";
+  cats.forEach(c=>{
+    const count = Object.values(DATA).filter(v=>v.cat === c).length;
+    const card = document.createElement("button");
+    card.className = "plan-card";
+    card.innerHTML = `
+      <div class="pc-title">${esc(c)}</div>
+      <div class="pc-meta"><span>${count} plans</span></div>
+    `;
+    card.addEventListener("click", ()=>{
+      state.libraryFilter = c;
+      state.librarySearch = "";
+      $("#libSearch").value = "";
+      go("library");
+      renderLibraryFilters();
+      renderLibrary();
+    });
+    catGrid.appendChild(card);
+  });
+
+  $("#statPlans").textContent = Object.keys(DATA).length;
+  $("#statSteps").textContent = Object.values(DATA).reduce((a,v)=>a+v.steps.length, 0) + "+";
+}
+
+/* ============================================================
+   PLANNER SIDEBAR SELECT
+   ============================================================ */
+function renderPlanSelect(){
+  const sel = $("#planSelect");
+  const grouped = {};
+  Object.entries(DATA).forEach(([k,v])=>{
+    (grouped[v.cat] ||= []).push([k, v]);
+  });
+  const cats = Object.keys(grouped).sort();
+  sel.innerHTML = "";
+  cats.forEach(c=>{
+    const og = document.createElement("optgroup");
+    og.label = c;
+    grouped[c].sort((a,b)=>a[1].label.localeCompare(b[1].label)).forEach(([k, v])=>{
+      const o = document.createElement("option");
+      o.value = k;
+      o.textContent = `${v.icon}  ${v.label}`;
+      if(k === state.event) o.selected = true;
+      og.appendChild(o);
+    });
+    sel.appendChild(og);
+  });
+  sel.onchange = e => {
+    state.event = e.target.value;
+    state.selected = null;
+    saveState();
+    build();
+  };
+}
+
+/* ============================================================
+   PROGRESS
+   ============================================================ */
+function renderProgress(){
+  const ev = DATA[state.event];
+  const checked = getChecked();
+  const done = ev.steps.filter(st=>checked.has(st.id)).length;
+  const pct = Math.round(done / ev.steps.length * 100);
+  $("#progressFill").style.width = pct + "%";
+  $("#progressPct").textContent = pct + "%";
+  $("#statRemaining").innerHTML = (ev.steps.length - done) + " <small>tasks</small>";
+  const sched = computeSchedule(ev.steps, checked, state.delay);
+  const maxEnd = Math.max(0, ...ev.steps.map(st=>sched[st.id].end));
+  $("#statDays").innerHTML = maxEnd + " <small>days</small>";
+}
+
+/* ============================================================
+   GRAPH
+   ============================================================ */
+let selectedNodeId = null;
+
+function build(){
+  renderPlanSelect();
+  renderProgress();
+  renderGraph();
+  renderDetail();
+  applyTheme();
+  applyMotion();
+}
+
+function renderGraph(){
+  const ev = DATA[state.event];
+  if(!ev) return;
+  const steps = ev.steps;
+  const checked = getChecked();
+  const levels = computeLayers(steps);
+  const critical = computeCritical(steps);
+
+  const cols = {};
+  steps.forEach(st=>{ (cols[levels[st.id]] ||= []).push(st); });
+  const maxCol = Math.max(...Object.keys(cols).map(Number));
+  const maxCount = Math.max(...Object.values(cols).map(c=>c.length));
+
+  const totalW = PAD*2 + (maxCol+1)*NODE_W + maxCol*GAP_X;
+  const totalH = PAD*2 + maxCount*NODE_H + (maxCount-1)*GAP_Y;
+
+  const pos = {};
+  for(const [colStr, arr] of Object.entries(cols)){
+    const col = +colStr;
+    const x = PAD + col*(NODE_W+GAP_X);
+    const colH = arr.length*NODE_H + (arr.length-1)*GAP_Y;
+    const y0 = (totalH - colH)/2;
+    arr.forEach((st, i)=>{
+      pos[st.id] = { x, y: y0 + i*(NODE_H+GAP_Y) };
+    });
+  }
+
+  const svg = $("#graph");
+  svg.innerHTML = "";
+  svg.setAttribute("viewBox", `0 0 ${totalW} ${totalH}`);
+  svg.setAttribute("width", totalW);
+  svg.setAttribute("height", totalH);
+
+  let focusSet = null;
+  if(state.focus && selectedNodeId){
+    const down = {};
+    steps.forEach(st=>{ st.deps.forEach(d=>{ (down[d] ||= []).push(st.id); }); });
+    focusSet = new Set();
+    const stack = [selectedNodeId];
+    while(stack.length){
+      const cur = stack.pop();
+      if(focusSet.has(cur)) continue;
+      focusSet.add(cur);
+      (Object.fromEntries(steps.map(s=>[s.id,s]))[cur]?.deps || []).forEach(d=>stack.push(d));
+      (down[cur] || []).forEach(d=>stack.push(d));
+    }
+  }
+
+  const edgeLayer = document.createElementNS(SVG_NS, "g");
+  svg.appendChild(edgeLayer);
+  steps.forEach(st=>{
+    st.deps.forEach(depId=>{
+      const a = pos[depId], b = pos[st.id];
+      if(!a || !b) return;
+      const x1 = a.x + NODE_W, y1 = a.y + NODE_H/2;
+      const x2 = b.x, y2 = b.y + NODE_H/2;
+      const mx = (x1 + x2)/2;
+      const path = document.createElementNS(SVG_NS, "path");
+      path.setAttribute("d", `M ${x1} ${y1} C ${mx} ${y1}, ${mx} ${y2}, ${x2} ${y2}`);
+      path.classList.add("edge");
+      if(critical.has(st.id) && critical.has(depId)) path.classList.add("critical");
+      if(checked.has(depId)) path.classList.add("active");
+      if(focusSet && !(focusSet.has(st.id) && focusSet.has(depId))) path.classList.add("dim");
+      edgeLayer.appendChild(path);
+    });
+  });
+
+  const nodeLayer = document.createElementNS(SVG_NS, "g");
+  svg.appendChild(nodeLayer);
+
+  steps.forEach(st=>{
+    const p = pos[st.id];
+    const g = document.createElementNS(SVG_NS, "g");
+    g.setAttribute("class", "node");
+    g.setAttribute("transform", `translate(${p.x},${p.y})`);
+    g.dataset.id = st.id;
+
+    const status = getStatus(st, checked);
+    g.classList.add(status);
+    if(critical.has(st.id)) g.classList.add("critical");
+    if(state.selected === st.id) g.classList.add("selected");
+    if(focusSet && !focusSet.has(st.id)) g.classList.add("dim");
+
+    const halo = document.createElementNS(SVG_NS, "rect");
+    halo.setAttribute("x", -6); halo.setAttribute("y", -6);
+    halo.setAttribute("width", NODE_W+12); halo.setAttribute("height", NODE_H+12);
+    halo.setAttribute("rx", 18);
+    halo.classList.add("halo");
+    g.appendChild(halo);
+
+    const fo = document.createElementNS(SVG_NS, "foreignObject");
+    fo.setAttribute("x", 0); fo.setAttribute("y", 0);
+    fo.setAttribute("width", NODE_W); fo.setAttribute("height", NODE_H);
+
+    const div = document.createElement("div");
+    div.className = "card";
+    div.innerHTML = `
+      <div class="card-title">${esc(st.title)}</div>
+      <div class="card-meta">
+        <span class="status-dot"></span>
+        <span>${st.days}d</span>
+        <span>·</span>
+        <span>${st.docs.length} docs</span>
+        ${st.deps.length ? `<span>·</span><span>${st.deps.length} pre</span>` : ""}
+      </div>`;
+    fo.appendChild(div);
+    g.appendChild(fo);
+
+    g.addEventListener("click", e=>{
+      e.stopPropagation();
+      state.selected = st.id;
+      selectedNodeId = st.id;
+      renderGraph();
+      renderDetail();
+    });
+
+    nodeLayer.appendChild(g);
+  });
+}
+
+/* ============================================================
+   DETAIL
+   ============================================================ */
+function renderDetail(){
+  const box = $("#detail");
+  const ev = DATA[state.event];
+  const checked = getChecked();
+  const byId = Object.fromEntries(ev.steps.map(s=>[s.id,s]));
+
+  if(!state.selected || !byId[state.selected]){
+    box.innerHTML = `<div class="detail-empty">Select a step on the atlas<br>to see prerequisites, documents, deadlines and official sources.</div>`;
+    return;
+  }
+
+  const st = byId[state.selected];
+  const status = getStatus(st, checked);
+  const sched = computeSchedule(ev.steps, checked, state.delay)[st.id];
+  const done = checked.has(st.id);
+  const statusLabel = { done:"Completed", unlocked:"Ready", blocked:"Blocked" }[status];
+  const dependents = ev.steps.filter(x=>x.deps.includes(st.id));
+
+  box.innerHTML = `
+    <h3>${esc(st.title)}</h3>
+    <div>
+      <span class="tag">${st.days} days</span>
+      <span class="tag">${esc(st.fee)}</span>
+      <span class="tag">${statusLabel}</span>
+      <span class="tag">Finish +${sched.end}d</span>
+    </div>
+    <p>${esc(st.desc)}</p>
+
+    <div class="check-row ${done?"on":""}" id="toggleDone">
+      <div class="checkbox"></div>
+      <span>${done ? "Marked as completed" : "Mark as completed"}</span>
+    </div>
+
+    <div class="kv"><div class="k">Documents</div><div class="v">${st.docs.map(esc).join(", ") || "—"}</div></div>
+    <div class="kv"><div class="k">Official fee</div><div class="v">${esc(st.fee)}</div></div>
+    <div class="kv"><div class="k">Last verified</div><div class="v">${esc(st.verified)}</div></div>
+
+    <div style="margin-top:12px">
+      <div class="k" style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:4px">Prerequisites</div>
+      ${st.deps.length ? `<div class="dep-chips">${st.deps.map(d=>`<span class="chip" data-goto="${d}">${esc(byId[d].title)}</span>`).join("")}</div>` : `<div style="font-size:12px;color:var(--muted)">None — starting point.</div>`}
+    </div>
+
+    <div style="margin-top:12px">
+      <div class="k" style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:4px">Unlocks</div>
+      ${dependents.length ? `<div class="dep-chips">${dependents.map(d=>`<span class="chip" data-goto="${d.id}">${esc(d.title)}</span>`).join("")}</div>` : `<div style="font-size:12px;color:var(--muted)">End step.</div>`}
+    </div>
+
+    <div style="margin-top:14px">
+      <div class="k" style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:4px">Tip</div>
+      <p style="margin:0">${esc(st.tip || "—")}</p>
+    </div>
+
+    <div style="margin-top:14px">
+      <div class="k" style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:4px">Official source</div>
+      <a class="source-link" href="${esc(st.source)}" target="_blank" rel="noopener noreferrer">${esc(st.source)}</a>
+    </div>
+  `;
+
+  $("#toggleDone").addEventListener("click", ()=>{
+    if(checked.has(st.id)) checked.delete(st.id);
+    else checked.add(st.id);
+    saveState();
+    renderGraph();
+    renderDetail();
+    renderProgress();
+  });
+
+  box.querySelectorAll("[data-goto]").forEach(chip=>{
+    chip.addEventListener("click", ()=>{
+      state.selected = chip.dataset.goto;
+      selectedNodeId = state.selected;
+      renderGraph();
+      renderDetail();
+    });
+  });
+}
+
+/* ============================================================
+   ACTIONS
+   ============================================================ */
+$("#printBtn").addEventListener("click", ()=>window.print());
+
+$("#resetBtn").addEventListener("click", ()=>{
+  if(!confirm("Reset all progress for this plan?")) return;
+  state.checked[state.event] = new Set();
+  state.selected = null;
+  selectedNodeId = null;
+  saveState();
+  build();
+});
+
+$("#shareBtn").addEventListener("click", async ()=>{
+  const payload = { event: state.event, done: [...getChecked()] };
+  const url = location.origin + location.pathname + "#plan=" + encodeURIComponent(JSON.stringify(payload));
+  try{
+    await navigator.clipboard.writeText(url);
+    flashButton($("#shareBtn"), "Copied!");
+  }catch(e){ prompt("Copy this link:", url); }
+});
+
+$("#icsBtn").addEventListener("click", ()=>{
+  const ev = DATA[state.event];
+  const checked = getChecked();
+  const sched = computeSchedule(ev.steps, checked, state.delay);
+  const now = new Date();
+  const stamp = now.toISOString().replace(/[-:]/g,"").split(".")[0] + "Z";
+  const lines = ["BEGIN:VCALENDAR","VERSION:2.0",
+    "PRODID:-//Preflight//EN","CALSCALE:GREGORIAN"];
+  ev.steps.forEach(st=>{
+    const start = new Date(now);
+    start.setDate(start.getDate() + sched[st.id].start);
+    const end = new Date(start);
+    end.setDate(end.getDate() + Math.max(1, st.days));
+    lines.push("BEGIN:VEVENT");
+    lines.push(`UID:preflight-${state.event}-${st.id}@local`);
+    lines.push(`DTSTAMP:${stamp}`);
+    lines.push(`DTSTART;VALUE=DATE:${ymd(start)}`);
+    lines.push(`DTEND;VALUE=DATE:${ymd(end)}`);
+    lines.push(`SUMMARY:${st.title}`);
+    lines.push(`DESCRIPTION:${st.desc} | Fee: ${st.fee}`);
+    lines.push("END:VEVENT");
+  });
+  lines.push("END:VCALENDAR");
+  const blob = new Blob([lines.join("\r\n")], { type:"text/calendar" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `preflight-${state.event}.ics`;
+  a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href), 2000);
+  flashButton($("#icsBtn"), "Exported!");
+});
+function flashButton(btn, text){
+  const old = btn.textContent;
+  btn.textContent = "✓ " + text;
+  setTimeout(()=>{ btn.textContent = old; }, 1400);
+}
+
+$("#delay").addEventListener("input", e=>{
+  state.delay = +e.target.value;
+  $("#delayVal").textContent = state.delay;
+  renderProgress();
+  renderDetail();
+});
+
+/* ============================================================
+   THEME, MOTION, FULLSCREEN
+   ============================================================ */
+function applyTheme(){
+  document.documentElement.setAttribute("data-theme", state.theme);
+  $("#themeBtn").textContent = state.theme === "dark" ? "🌙" : "☀️";
+  $("#themeBtn").classList.toggle("on", state.theme === "light");
+  updateBgColors();
+}
+function applyMotion(){
+  document.body.classList.toggle("no-motion", !state.motion);
+  $("#motionBtn").classList.toggle("on", state.motion);
+}
+$("#themeBtn").addEventListener("click", ()=>{
+  state.theme = state.theme === "dark" ? "light" : "dark";
+  saveState(); applyTheme();
+});
+$("#motionBtn").addEventListener("click", ()=>{
+  state.motion = !state.motion;
+  saveState(); applyMotion(); startBg();
+});
+
+function toggleFS(){
+  if(!document.fullscreenElement && !document.webkitFullscreenElement){
+    const el = document.documentElement;
+    const p = (el.requestFullscreen || el.webkitRequestFullscreen || el.msRequestFullscreen);
+    if(p) p.call(el).catch?.(()=>{});
+  } else {
+    const p = (document.exitFullscreen || document.webkitExitFullscreen || document.msExitFullscreen);
+    if(p) p.call(document);
+  }
+}
+function updateFSBtn(){
+  const btn = $("#fsBtn");
+  if(!btn) return;
+  const on = !!(document.fullscreenElement || document.webkitFullscreenElement);
+  btn.classList.toggle("on", on);
+  btn.textContent = on ? "⛶ Exit" : "⛶";
+  btn.title = on ? "Exit fullscreen" : "Fullscreen";
+}
+$("#fsBtn").addEventListener("click", toggleFS);
+document.addEventListener("fullscreenchange", updateFSBtn);
+document.addEventListener("webkitfullscreenchange", updateFSBtn);
+updateFSBtn();
+
+/* ============================================================
+   AMBIENT MUSIC — generated live, no audio files
+   ============================================================ */
+const music = {
+  ctx: null, master: null, playing: false,
+  build(){
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    this.ctx = new Ctx();
+    this.master = this.ctx.createGain();
+    this.master.gain.value = 0;
+    this.master.connect(this.ctx.destination);
+
+    // Soft reverb-ish feedback delay
+    const delay = this.ctx.createDelay();
+    delay.delayTime.value = 0.42;
+    const fb = this.ctx.createGain(); fb.gain.value = 0.32;
+    const lpDelay = this.ctx.createBiquadFilter();
+    lpDelay.type = "lowpass"; lpDelay.frequency.value = 1400;
+    delay.connect(lpDelay).connect(fb).connect(delay);
+    lpDelay.connect(this.master);
+
+    // Gentle C-major pad (C E G C E)
+    const freqs = [130.81, 164.81, 196.00, 261.63, 329.63];
+    freqs.forEach((f, i)=>{
+      const osc = this.ctx.createOscillator();
+      osc.type = i % 2 ? "triangle" : "sine";
+      osc.frequency.value = f;
+      osc.detune.value = (Math.random() - 0.5) * 6;
+
+      const gain = this.ctx.createGain();
+      const baseGain = 0.055 - i * 0.006;
+      gain.gain.value = baseGain;
+
+      const filter = this.ctx.createBiquadFilter();
+      filter.type = "lowpass";
+      filter.frequency.value = 900;
+      filter.Q.value = 0.4;
+
+      // Slow filter LFO
+      const lfo = this.ctx.createOscillator();
+      lfo.frequency.value = 0.03 + Math.random() * 0.06;
+      const lfoGain = this.ctx.createGain();
+      lfoGain.gain.value = 400;
+      lfo.connect(lfoGain).connect(filter.frequency);
+      lfo.start();
+
+      // Slow tremolo
+      const trem = this.ctx.createOscillator();
+      trem.frequency.value = 0.08 + Math.random() * 0.1;
+      const tremGain = this.ctx.createGain();
+      tremGain.gain.value = baseGain * 0.4;
+      trem.connect(tremGain).connect(gain.gain);
+      trem.start();
+
+      osc.connect(filter).connect(gain);
+      gain.connect(this.master);
+      gain.connect(delay);
+      osc.start();
+    });
+  },
+  toggle(){
+    if(!this.ctx) this.build();
+    if(this.playing){
+      this.master.gain.cancelScheduledValues(this.ctx.currentTime);
+      this.master.gain.linearRampToValueAtTime(0, this.ctx.currentTime + 1.2);
+      this.playing = false;
+    } else {
+      this.ctx.resume();
+      this.master.gain.cancelScheduledValues(this.ctx.currentTime);
+      this.master.gain.linearRampToValueAtTime(0.09, this.ctx.currentTime + 2.5);
+      this.playing = true;
+    }
+    return this.playing;
+  }
+};
+$("#musicBtn").addEventListener("click", ()=>{
+  const on = music.toggle();
+  const btn = $("#musicBtn");
+  btn.classList.toggle("on", on);
+  btn.textContent = on ? "🎵 On" : "🎵 Music";
+});
+
+/* ============================================================
+   MOTION WALLPAPER
+   ============================================================ */
+const canvas = $("#bg");
+const ctx = canvas.getContext("2d");
+let W = 0, H = 0, dpr = 1;
+let particles = [];
+let colors = { accent:"#4fd1ff", accent2:"#9b6bff" };
+let mouse = { x:-9999, y:-9999 };
+let t = 0;
+let rafId = null;
+
+function updateBgColors(){
+  const cs = getComputedStyle(document.documentElement);
+  colors.accent = cs.getPropertyValue("--accent").trim() || "#4fd1ff";
+  colors.accent2 = cs.getPropertyValue("--accent2").trim() || "#9b6bff";
+}
+function hexA(hex, a){
+  const h = hex.replace("#","");
+  const n = parseInt(h.length === 3 ? h.split("").map(c=>c+c).join("") : h, 16);
+  return `rgba(${(n>>16)&255},${(n>>8)&255},${n&255},${a})`;
+}
+function resizeCanvas(){
+  dpr = Math.min(window.devicePixelRatio || 1, 2);
+  W = window.innerWidth; H = window.innerHeight;
+  canvas.width = Math.floor(W * dpr);
+  canvas.height = Math.floor(H * dpr);
+  canvas.style.width = W + "px";
+  canvas.style.height = H + "px";
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const target = Math.min(80, Math.floor(W * H / 22000));
+  particles = [];
+  for(let i=0; i<target; i++){
+    particles.push({
+      x: Math.random()*W, y: Math.random()*H,
+      vx: (Math.random()-0.5)*0.22, vy: (Math.random()-0.5)*0.22,
+      r: Math.random()*1.6 + 0.6
+    });
+  }
+}
+function drawFieldLines(){
+  const LINES = 20;
+  for(let i=0; i<LINES; i++){
+    ctx.beginPath();
+    const yBase = (i / (LINES-1)) * H;
+    for(let x=0; x<=W; x+=14){
+      const y = yBase
+        + Math.sin(x * 0.005 + t * 0.6 + i * 0.5) * 16
+        + Math.sin(x * 0.013 + t * 1.1 + i) * 7
+        + Math.sin((x + yBase) * 0.003 + t * 0.4) * 12;
+      if(x === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.strokeStyle = hexA(colors.accent, 0.05 + (i % 3) * 0.02);
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  }
+}
+function drawAurora(){
+  const blobs = [
+    { x: 0.2, y: 0.25, r: 0.6, col: colors.accent, sp: 0.0007 },
+    { x: 0.85, y: 0.7, r: 0.55, col: colors.accent2, sp: 0.0009 },
+    { x: 0.6, y: 0.15, r: 0.45, col: colors.accent2, sp: 0.0011 }
+  ];
+  blobs.forEach((b, i)=>{
+    const cx = (b.x + Math.sin(t * b.sp * 10 + i) * 0.08) * W;
+    const cy = (b.y + Math.cos(t * b.sp * 12 + i) * 0.08) * H;
+    const rad = Math.min(W, H) * b.r;
+    const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, rad);
+    grad.addColorStop(0, hexA(b.col, 0.10));
+    grad.addColorStop(1, hexA(b.col, 0));
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, W, H);
+  });
+}
+function drawParticles(){
+  const md = 160;
+  for(let i=0; i<particles.length; i++){
+    const p = particles[i];
+    p.x += p.vx; p.y += p.vy;
+    if(p.x < -10) p.x = W + 10;
+    if(p.x > W + 10) p.x = -10;
+    if(p.y < -10) p.y = H + 10;
+    if(p.y > H + 10) p.y = -10;
+    const dx = p.x - mouse.x, dy = p.y - mouse.y;
+    const d2 = dx*dx + dy*dy;
+    if(d2 < 180*180 && d2 > 0.01){
+      const f = (1 - Math.sqrt(d2)/180) * 0.4;
+      p.x += (dx / Math.sqrt(d2)) * f;
+      p.y += (dy / Math.sqrt(d2)) * f;
+    }
+  }
+  for(let i=0; i<particles.length; i++){
+    const a = particles[i];
+    for(let j=i+1; j<particles.length; j++){
+      const b = particles[j];
+      const dx = a.x - b.x, dy = a.y - b.y;
+      const d2 = dx*dx + dy*dy;
+      if(d2 < md*md){
+        ctx.strokeStyle = hexA(colors.accent, (1 - Math.sqrt(d2)/md) * 0.22);
+        ctx.lineWidth = 0.7;
+        ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+      }
+    }
+  }
+  for(let i=0; i<particles.length; i++){
+    const p = particles[i];
+    ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI*2);
+    ctx.fillStyle = hexA(colors.accent, 0.55); ctx.fill();
+  }
+}
+function drawStatic(){
+  ctx.clearRect(0, 0, W, H);
+  drawAurora(); drawFieldLines(); drawParticles();
+}
+function loop(){
+  t += 0.008;
+  ctx.clearRect(0, 0, W, H);
+  drawAurora(); drawFieldLines(); drawParticles();
+  rafId = requestAnimationFrame(loop);
+}
+function startBg(){
+  resizeCanvas();
+  if(rafId) cancelAnimationFrame(rafId);
+  if(state.motion) loop(); else drawStatic();
+}
+window.addEventListener("mousemove", e=>{ mouse.x = e.clientX; mouse.y = e.clientY; });
+window.addEventListener("mouseleave", ()=>{ mouse.x = -9999; mouse.y = -9999; });
+window.addEventListener("resize", ()=>{ resizeCanvas(); if(!state.motion) drawStatic(); });
+
+/* ============================================================
+   CLOCK
+   ============================================================ */
+function tickClock(){
+  $("#clock").textContent = new Date().toLocaleTimeString([], { hour:"2-digit", minute:"2-digit" });
+}
+setInterval(tickClock, 30000);
+tickClock();
+
+/* ============================================================
+   INIT
+   ============================================================ */
+loadState();
+updateBgColors();
+startBg();
+renderFeatured();
+renderLibraryFilters();
+renderLibrary();
+build();
+
+// Deep-link via hash
+if(location.hash === "#planner" || location.hash === "#library" || location.hash === "#home"){
+  go(location.hash.slice(1));
+} else if(location.hash.startsWith("#plan=")){
+  try{
+    const payload = JSON.parse(decodeURIComponent(location.hash.slice(6)));
+    if(payload.event && DATA[payload.event]){
+      state.event = payload.event;
+      if(Array.isArray(payload.done)) state.checked[payload.event] = new Set(payload.done);
+      go("planner");
+      build();
+    }
+  }catch(e){}
+}
+</script>
+</body>
+</html>
